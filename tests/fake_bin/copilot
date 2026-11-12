@@ -1,0 +1,24 @@
+#!/usr/bin/env python3
+"""A local stand-in: records resume arguments and emits a real session hook."""
+
+import json
+import os
+from pathlib import Path
+import subprocess
+import sys
+import time
+
+
+script = Path(__file__).resolve().parents[2] / "copilot_tmux.py"
+flag = "--resume" if "--resume" in sys.argv else "--session-id"
+session_id = sys.argv[sys.argv.index(flag) + 1]
+(Path(os.environ["COPILOT_HOME"]) / "session-state" / session_id).mkdir(parents=True, exist_ok=True)
+with (Path(os.environ["XDG_STATE_HOME"]) / "invocations.jsonl").open("a") as log:
+    log.write(json.dumps({"args": sys.argv[1:], "cwd": os.getcwd()}) + "\n")
+subprocess.run(
+    [sys.executable, str(script), "hook"],
+    input=json.dumps({"sessionId": session_id, "cwd": os.getcwd()}),
+    text=True, check=True,
+)
+while True:
+    time.sleep(60)
