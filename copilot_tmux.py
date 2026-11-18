@@ -394,35 +394,58 @@ def launch(args, registry):
     os.environ["COPILOT_TMUX_STATE_DIR"] = str(registry.directory)
     os.environ.pop("COPILOT_AGENT_SESSION_ID", None)
     flag = "--session-id" if args.new else "--resume"
-    os.execv(args.executable, [args.executable, flag, args.session_id])
+    extra = ["--yolo"] if args.yolo else []
+    os.execv(args.executable, [args.executable, flag, args.session_id, *extra])
 
 
-def start_or_restore(registry, tmux):
+def start_or_restore(registry, tmux, copilot_args=(), yolo=False):
+    cwd = os.getcwd()
     with registry.lock("startup"):
         existing = tmux.sessions()
-        if existing:
-            name = existing[0]
-        elif registry.workspaces():
+        if not existing and registry.workspaces():
             source = choose_source(registry)
             restore(registry, tmux, argparse.Namespace(
                 source=source["key"], previous=False, session=None, apply=True,
             ))
-            name = source["entries"][0]["tmux_session"]
+            existing = tmux.sessions()
+        pane = None
+        if existing and not copilot_args:
+            for candidate in tmux.panes():
+                record = tmux.marker(candidate)
+                if record and record_alive(record) and record["cwd"] == cwd:
+                    pane = candidate
+                    break
+        if pane is not None:
+            name = tmux.display(pane, "session_name")
+            tmux.run("select-window", "-t", pane)
+            tmux.run("select-pane", "-t", pane)
         else:
             executable = shutil.which("copilot")
             if executable is None:
                 raise RuntimeError("copilot is not on PATH.")
-            name = "copilot"
+            name = existing[0] if existing else "copilot"
             command = [
                 sys.executable, SCRIPT, "--state-dir", str(registry.directory),
                 "launch", "--new", "--session-id", str(uuid.uuid4()),
-                "--cwd", os.getcwd(),
+                "--cwd", cwd,
                 "--copilot-home", str(Path(os.environ.get(
                     "COPILOT_HOME", Path.home() / ".copilot")).absolute()),
                 "--executable", executable,
             ]
-            tmux.run("new-session", "-d", "-s", name, "-n", "copilot",
-                     "-c", os.getcwd(), *command)
+            if yolo:
+                command.append("--yolo")
+            if copilot_args:
+                # Let Copilot interpret explicit resume IDs and other options itself.
+                command = [executable, *(["--yolo"] if yolo else []), *copilot_args]
+            if existing:
+                pane = tmux.run(
+                    "new-window", "-d", "-P", "-F", "#{pane_id}", "-t", f"={name}:",
+                    "-n", "copilot", "-c", cwd, *command,
+                ).stdout.strip()
+                tmux.run("select-window", "-t", pane)
+            else:
+                tmux.run("new-session", "-d", "-s", name, "-n", "copilot",
+                         "-c", cwd, *command)
     tmux.attach(name)
 
 
@@ -430,11 +453,17 @@ def main():
     parser = argparse.ArgumentParser(prog="copilot-tmux", description=__doc__)
     parser.add_argument("--state-dir", help="Override the persistent registry directory.")
     parser.add_argument("--socket", help="Target a specific tmux socket.")
-    parser.epilog = "With no command, attach to tmux, restore the latest workspace, or start Copilot."
+    parser.epilog = (
+        "With no command, restore the workspace if needed, then select or start "
+        "Copilot in the current directory."
+    )
     commands = parser.add_subparsers(dest="command")
     commands.add_parser("hook", help="Register a Copilot hook (internal).")
     commands.add_parser("snapshot", help="Refresh names and paths of tracked tmux panes.")
     commands.add_parser("list", help="List saved workspace sources.")
+    starter = commands.add_parser("start", help="Select/start Copilot here; pass options after --.")
+    starter.add_argument("--yolo", action="store_true", help="Use all permissions for new sessions.")
+    starter.add_argument("copilot_args", nargs=argparse.REMAINDER)
     recovery = commands.add_parser("restore", help="Preview a saved workspace; --apply reopens it.")
     recovery.add_argument("--apply", action="store_true")
     recovery.add_argument("--source", help="Workspace source ID from list.")
@@ -442,6 +471,7 @@ def main():
     recovery.add_argument("--session", action="append", help="Restore only this session UUID; repeatable.")
     launcher = commands.add_parser("launch", help="Launch a restored session (internal).")
     launcher.add_argument("--new", action="store_true", help=argparse.SUPPRESS)
+    launcher.add_argument("--yolo", action="store_true", help=argparse.SUPPRESS)
     for flag in ("session-id", "cwd", "copilot-home", "executable"):
         launcher.add_argument("--" + flag, required=True)
     args = parser.parse_args()
@@ -450,6 +480,11 @@ def main():
     try:
         if args.command is None:
             start_or_restore(registry, tmux)
+        elif args.command == "start":
+            extra = args.copilot_args
+            if extra[:1] == ["--"]:
+                extra = extra[1:]
+            start_or_restore(registry, tmux, extra, yolo=args.yolo)
         elif args.command == "hook":
             hook(registry)
         elif args.command == "snapshot":

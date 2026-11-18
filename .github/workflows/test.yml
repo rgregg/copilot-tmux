@@ -18,3 +18,6 @@ jobs:
         run: sudo apt-get update -qq && sudo apt-get install -y tmux
       - name: Run unit and isolated tmux integration tests
         run: python3 -m unittest discover -s tests -v
+      - name: Run PowerShell helper tests
+        shell: pwsh
+        run: ./tests/test_devboxes.ps1
