@@ -37,10 +37,15 @@ copilot-tmux
 
 With no arguments:
 
-1. Attach to an existing session on the target tmux server, without creating
-   duplicate Copilot processes. Inside that server, switch instead of nesting.
-2. If no tmux sessions exist, restore the latest saved workspace and attach.
-3. If no workspace is saved, start a fresh Copilot session inside tmux.
+1. If no tmux sessions exist, restore the latest saved workspace.
+2. Select an existing live Copilot pane in the caller's directory, or start a
+   new one there without replacing other work.
+3. Attach, or switch clients when already inside that tmux server.
+
+Use `copilot-tmux start --yolo` to enable all permissions for a newly started
+session. Explicit Copilot arguments go after `--`, for example
+`copilot-tmux start --yolo -- --resume SESSION_UUID`. Explicit arguments open a
+new window so that an existing session cannot silently swallow them.
 
 Explicit recovery commands:
 
@@ -100,3 +105,83 @@ python3 -m unittest discover -s tests -v
 
 Integration tests use isolated tmux sockets, temporary state, and a fake
 Copilot executable. They do not send prompts to an AI model or use credentials.
+
+## Shared dev-box helpers
+
+The optional helpers standardize Linux, WSL, and PowerShell launchers. Keep a
+private `devboxes` folder in OneDrive (or another shared/local folder) with
+`lobster3-key.txt`, `lobster4-key.txt`, and `rygregg-ubuntu-key.txt`. Each contains
+only that box's tailcat address. These addresses are secrets: never commit them.
+Keep SSH private keys, Copilot history, and recovery databases local to each box.
+
+Copy the source files into `devboxes/tools` without `.git`, tests, or any local
+state, then install on each Linux/WSL box:
+
+```sh
+python3 /path/to/devboxes/tools/setup_devboxes.py \
+  --shared-dir /path/to/devboxes --name lobster4 \
+  --ssh-identity ~/.ssh/devboxes_ed25519
+```
+
+Use `lobster3` or `rygregg-ubuntu` for the other box names. `--ssh-identity` is
+optional when the SSH agent/default key already works. Explicit identity files
+must be owner-only (`chmod 600`), not permissively mounted Windows files.
+Authorize each client's public key on the destination's existing tailcat SSH
+service; tailcat loads authorized keys at startup, so reload that service after
+changing its key file. The installer does not change server authentication.
+Do not restart a tailcat service while tmux belongs to its systemd control
+group: the default `KillMode=control-group` can kill the entire tmux workspace.
+Use an already-authenticated hop instead when a restart is unsafe:
+
+```sh
+devbox-update --via tail-lobster4=tail-ubuntu
+```
+
+This routes `tail-lobster4` through Ubuntu's installed shortcut, using Ubuntu's own
+local key; it does not forward or copy a private key. Ubuntu must be available.
+Use `devbox-update --via tail-lobster4=direct` once direct authentication is ready.
+
+From PowerShell 7 on Windows, run:
+
+```powershell
+& "$env:OneDriveCommercial\devboxes\tools\Install-Devboxes.ps1" -Name lobster4
+```
+
+This installs into the default WSL distribution and adds one dot-source block
+to the current user's all-hosts profile, preserving everything else. When that
+profile is OneDrive-synced, its functions load on both Windows boxes; each WSL
+distribution still needs its own installation. Open a new shell afterward.
+
+| Command | Behavior |
+| --- | --- |
+| `lobster`, `lobsterclaw` | Enter the local checkout; outside tmux select/start a directory-specific Copilot pane, inside tmux start Copilot directly. New sessions use `--yolo`; arguments are forwarded. |
+| `copilot-tmux` | Select/start in the caller's directory, with persistent recovery. |
+| `tail-lobster3`, `tail-lobster4`, `tail-ubuntu` | Connect through tailcat and open the destination's Copilot workspace. A shortcut to the current box stays local. |
+| `tail-lobster3 hostname` | Run an explicit remote command; arguments are shell-quoted. |
+| `devbox-helpers doctor` | Report paths, tools, checkouts, and address-file presence, without printing tokens. PowerShell: `devbox-doctor`. |
+| `devbox-update` | Reinstall the current bundle from the configured shared folder, preserving the box name and SSH identity. |
+
+Checkouts default to `~/github/bic/lobster` and either
+`~/github/bic/lobsterclaw` or `~/github/bic/LobsterClaw`. Override with
+`LOBSTER_REPO` and `LOBSTERCLAW_REPO`. Windows functions always route into WSL,
+not the old `Q:` checkouts. Mouse and OSC 52 clipboard support are enabled for
+tmux. Remote shortcuts reset terminal mouse modes after disconnecting.
+The installer removes its old `lobster3`, `lobster4`, `ubuntu`, `lobster-3`,
+`lobster-4`, and `rygregg-ubuntu` wrappers, but preserves customized files.
+Box identities, address filenames, SSH host aliases, and saved routes are
+unchanged; only the commands use the `tail-` prefix.
+
+Existing managed files receive a one-time `.before-devboxes` backup. The
+installer preserves other Copilot hooks, tmux configuration, shell profiles,
+and workspace history. Existing tmux servers must load the new configuration
+once, as described above; do not repeatedly append recovery hooks.
+
+On Linux without a mounted OneDrive folder, deploy a private local copy of
+`devboxes` instead. `devbox-update` reads that local copy; it does not implement
+OneDrive synchronization. Refresh the copy when distributing a new bundle.
+
+PowerShell launcher/installer tests require no Pester modules:
+
+```powershell
+pwsh -NoProfile -File tests/test_devboxes.ps1
+```

@@ -141,18 +141,38 @@ class TmuxIntegrationTests(unittest.TestCase):
         return [json.loads(line) for line in log.read_text().splitlines()] if log.exists() else []
 
     def test_no_arguments_start_new_then_attach_without_duplicate(self):
-        with patch.object(self.target, "attach") as attach:
+        with contextlib.chdir(self.cwd), patch.object(self.target, "attach") as attach:
             recovery.start_or_restore(self.registry, self.target)
             attach.assert_called_once_with("copilot")
         self.wait_for(lambda: len(self.invocations()) == 1, "Fresh Copilot did not start.")
         self.assertEqual(self.invocations()[0]["args"][0], "--session-id")
+        self.assertEqual(self.invocations()[0]["cwd"], str(self.cwd))
         self.wait_for(lambda: bool(self.registry.workspaces()), "Fresh session was not saved.")
-        with patch.object(self.target, "attach") as attach:
+        with contextlib.chdir(self.cwd), patch.object(self.target, "attach") as attach:
             recovery.start_or_restore(self.registry, self.target)
             attach.assert_called_once_with("copilot")
         self.assertEqual(len(self.target.panes()), 1)
 
-    def test_no_arguments_restore_saved_workspace_and_attach(self):
+    def test_existing_workspace_selects_callers_directory_without_duplicate(self):
+        other = self.root / "other"
+        other.mkdir()
+        with contextlib.chdir(other), patch.object(self.target, "attach"):
+            recovery.start_or_restore(self.registry, self.target)
+        self.wait_for(lambda: len(self.invocations()) == 1, "Initial Copilot did not start.")
+        original = self.target.panes()[0]
+        with contextlib.chdir(self.cwd), patch.object(self.target, "attach"):
+            recovery.start_or_restore(self.registry, self.target, yolo=True)
+        self.wait_for(lambda: len(self.invocations()) == 2, "Directory-specific Copilot did not start.")
+        self.assertEqual(self.invocations()[1]["cwd"], str(self.cwd))
+        self.assertEqual(self.invocations()[1]["args"][-1], "--yolo")
+        requested = next(pane for pane in self.target.panes() if pane != original)
+        self.target.run("select-window", "-t", original)
+        with contextlib.chdir(self.cwd), patch.object(self.target, "attach"):
+            recovery.start_or_restore(self.registry, self.target, yolo=True)
+        self.assertEqual(len(self.target.panes()), 2)
+        self.assertEqual(self.target.display(requested, "window_active"), "1")
+
+    def check_restored_workspace(self, different_directory=False):
         sid = str(uuid.uuid4())
         self.add_session(sid)
         entry = {
@@ -163,11 +183,36 @@ class TmuxIntegrationTests(unittest.TestCase):
         identity = {"key": "offline", "boot": "old-boot",
                     "socket": self.sockets[0], "pid": 1, "start": "0"}
         self.registry.save(identity, [entry])
-        with patch.object(self.target, "attach") as attach, contextlib.redirect_stdout(io.StringIO()):
+        caller = self.root if different_directory else self.cwd
+        with contextlib.chdir(caller), patch.object(self.target, "attach") as attach, \
+                contextlib.redirect_stdout(io.StringIO()):
             recovery.start_or_restore(self.registry, self.target)
             attach.assert_called_once_with("saved work")
-        self.wait_for(lambda: len(self.invocations()) == 1, "Saved Copilot did not resume.")
-        self.assertEqual(self.invocations()[0]["args"], ["--resume", sid])
+        expected = 2 if different_directory else 1
+        self.wait_for(lambda: len(self.invocations()) == expected, "Expected Copilot sessions did not start.")
+        resumed = next(item for item in self.invocations() if item["args"] == ["--resume", sid])
+        self.assertEqual(resumed["cwd"], str(self.cwd))
+        self.assertEqual(len(self.target.panes()), expected)
+        active = next(pane for pane in self.target.panes()
+                      if self.target.display(pane, "window_active") == "1")
+        self.assertEqual(self.target.display(active, "pane_current_path"), str(caller))
+
+    def test_no_arguments_restore_saved_workspace_and_attach(self):
+        self.check_restored_workspace()
+
+    def test_restore_different_directory_keeps_history_and_opens_callers_directory(self):
+        self.check_restored_workspace(different_directory=True)
+
+    def test_explicit_copilot_arguments_open_new_window_without_injected_session_id(self):
+        sid = str(uuid.uuid4())
+        with contextlib.chdir(self.cwd), patch.object(self.target, "attach"):
+            recovery.start_or_restore(self.registry, self.target)
+        self.wait_for(lambda: len(self.invocations()) == 1, "Initial Copilot did not start.")
+        with contextlib.chdir(self.cwd), patch.object(self.target, "attach"):
+            recovery.start_or_restore(self.registry, self.target, ["--resume", sid], yolo=True)
+        self.wait_for(lambda: len(self.invocations()) == 2, "Explicit session did not start.")
+        self.assertEqual(self.invocations()[1]["args"], ["--yolo", "--resume", sid])
+        self.assertEqual(len(self.target.panes()), 2)
 
     def test_shutdown_restore_rename_split_and_duplicate_protection(self):
         sid1, sid2, sid3 = (str(uuid.uuid4()) for _ in range(3))
