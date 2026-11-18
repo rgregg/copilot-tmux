@@ -10,8 +10,10 @@ import subprocess
 import sys
 
 
-BOXES = {"lobster3": "lobster3", "lobster4": "lobster4", "ubuntu": "rygregg-ubuntu",
-         "rygregg-ubuntu": "rygregg-ubuntu", "lobster-3": "lobster3", "lobster-4": "lobster4"}
+BOXES = {"tail-lobster3": "lobster3", "tail-lobster4": "lobster4", "tail-ubuntu": "rygregg-ubuntu"}
+BOX_COMMANDS = {box: command for command, box in BOXES.items()}
+LEGACY_BOXES = {"lobster3": "lobster3", "lobster4": "lobster4", "ubuntu": "rygregg-ubuntu",
+                "rygregg-ubuntu": "rygregg-ubuntu", "lobster-3": "lobster3", "lobster-4": "lobster4"}
 MOUSE_RESET = "\033[?9l\033[?1000l\033[?1001l\033[?1002l\033[?1003l\033[?1005l\033[?1006l\033[?1015l\033[?1016l"
 
 
@@ -52,7 +54,7 @@ def connect(name, args, config):
     if via:
         if via not in set(BOXES.values()) or via in {name, config["name"]}:
             raise ValueError(f"Invalid SSH hop for {name}.")
-        args = [name, *args]
+        args = [BOX_COMMANDS[name], *args]
         name = via
     address_file = Path(config["shared_dir"]) / f"{name}-key.txt"
     if not address_file.is_file():
@@ -116,7 +118,7 @@ def doctor(config):
 
 def main():
     if len(sys.argv) < 2:
-        raise ValueError("Usage: devbox-helpers doctor | lobster | lobsterclaw | lobster3 | lobster4 | ubuntu | update")
+        raise ValueError("Usage: devbox-helpers doctor | lobster | lobsterclaw | tail-lobster3 | tail-lobster4 | tail-ubuntu | update")
     name, *args = sys.argv[1:]
     if name in {"lobster", "lobsterclaw"}:
         run_repo(name, args)

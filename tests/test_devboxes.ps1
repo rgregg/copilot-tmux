@@ -17,10 +17,15 @@ $call = $calls[1]
 if ($call[1] -ne $PWD.Path -or $call[-2] -ne 'copilot-tmux' -or $call[-1] -ne 'list') {
     throw 'copilot-tmux lost the caller directory or arguments.'
 }
-lobster-3
-if ($calls[2][-1] -ne 'lobster3') { throw 'Legacy lobster-3 alias is missing.' }
-ubuntu hostname
-if ($calls[3][-2] -ne 'ubuntu' -or $calls[3][-1] -ne 'hostname') { throw 'Ubuntu shortcut failed.' }
+tail-lobster3
+if ($calls[2][-1] -ne 'tail-lobster3') { throw 'Tail-lobster3 shortcut failed.' }
+tail-ubuntu hostname
+if ($calls[3][-2] -ne 'tail-ubuntu' -or $calls[3][-1] -ne 'hostname') { throw 'Tail-ubuntu shortcut failed.' }
+tail-lobster4 hostname
+if ($calls[4][-2] -ne 'tail-lobster4' -or $calls[4][-1] -ne 'hostname') { throw 'Tail-lobster4 shortcut failed.' }
+foreach ($name in @('lobster3', 'lobster4', 'ubuntu', 'lobster-3', 'lobster-4', 'rygregg-ubuntu')) {
+    if (Test-Path "Function:\$name") { throw "Legacy remote function remains: $name" }
+}
 
 $temp = Join-Path ([IO.Path]::GetTempPath()) ([guid]::NewGuid().ToString())
 New-Item -ItemType Directory -Path $temp | Out-Null

@@ -3,7 +3,9 @@ import io
 import json
 import os
 from pathlib import Path
+import shlex
 import subprocess
+import sys
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -85,7 +87,7 @@ class HelperTests(unittest.TestCase):
         command = run.call_args.args[0]
         self.assertIn("test@rygregg-ubuntu-tailcat", command)
         self.assertEqual(command[-1],
-                         'export PATH="$HOME/.local/bin:$PATH"; exec lobster4 printf \'a quoted value\'')
+                         'export PATH="$HOME/.local/bin:$PATH"; exec tail-lobster4 printf \'a quoted value\'')
 
     def test_remote_disconnect_resets_terminal_mouse_modes(self):
         (self.shared / "lobster3-key.txt").write_text("private-address")
@@ -120,7 +122,7 @@ class HelperTests(unittest.TestCase):
         identity.touch(mode=0o600)
         with patch.dict(os.environ, {}, clear=True), contextlib.redirect_stdout(io.StringIO()):
             setup.install(self.home, self.shared, "lobster3", identity,
-                          ["lobster4=ubuntu"])
+                          ["tail-lobster4=tail-ubuntu"])
             setup.install(self.home, self.shared)
         config = json.loads((self.home / ".config/devboxes/config.json").read_text())
         self.assertEqual(config["name"], "lobster3")
@@ -130,7 +132,38 @@ class HelperTests(unittest.TestCase):
         self.assertEqual((self.home / ".bashrc").read_text().count("# Shared devbox helpers"), 1)
         self.assertEqual((self.home / ".tmux.conf").read_text().count(
             "source-file ~/.config/tmux/devboxes.conf"), 1)
-        self.assertEqual((bin_dir / "lobster-3").stat().st_mode & 0o777, 0o700)
+        self.assertEqual((bin_dir / "tail-lobster3").stat().st_mode & 0o777, 0o700)
+
+    def test_install_retires_owned_legacy_wrappers_but_preserves_custom_helpers(self):
+        bin_dir = self.home / ".local/bin"
+        bin_dir.mkdir(parents=True)
+        script = self.home / ".local/lib/copilot-tmux/devbox_helpers.py"
+        interpreter_alias = self.home / "python-alias"
+        interpreter_alias.symlink_to(sys.executable)
+        for command in ("lobster3", "lobster4", "lobster-3", "lobster-4", "rygregg-ubuntu"):
+            executable = str(interpreter_alias) if command == "lobster3" else sys.executable
+            (bin_dir / command).write_text(
+                "#!/bin/sh\nexport PATH=\"$HOME/.local/bin:$PATH\"\nexec " +
+                shlex.join([executable, str(script), command]) + ' "$@"\n')
+        (bin_dir / "ubuntu").write_text("custom ubuntu launcher\n")
+        errors = io.StringIO()
+        with patch.dict(os.environ, {}, clear=True), contextlib.redirect_stdout(io.StringIO()), \
+                contextlib.redirect_stderr(errors):
+            setup.install(self.home, self.shared, "lobster3", routes=["lobster4=ubuntu"])
+        for command in ("lobster3", "lobster4", "lobster-3", "lobster-4", "rygregg-ubuntu"):
+            self.assertFalse((bin_dir / command).exists())
+        self.assertEqual((bin_dir / "ubuntu").read_text(), "custom ubuntu launcher\n")
+        self.assertIn("Preserving customized legacy helper", errors.getvalue())
+        config = json.loads((self.home / ".config/devboxes/config.json").read_text())
+        self.assertEqual(config["via"], {"lobster4": "rygregg-ubuntu"})
+        self.assertTrue((bin_dir / "tail-lobster4").exists())
+
+    def test_renamed_command_dispatches_to_unchanged_box_identity(self):
+        with patch.object(helpers.sys, "argv", ["devbox-helpers", "tail-lobster3", "hostname"]), \
+                patch.object(helpers, "load_config", return_value=self.config), \
+                patch.object(helpers, "connect") as connect:
+            helpers.main()
+        connect.assert_called_once_with("lobster3", ["hostname"], self.config)
 
     def test_install_rejects_windows_mounted_identity_permissions(self):
         identity = self.home / "identity"

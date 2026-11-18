@@ -134,12 +134,12 @@ group: the default `KillMode=control-group` can kill the entire tmux workspace.
 Use an already-authenticated hop instead when a restart is unsafe:
 
 ```sh
-devbox-update --via lobster4=ubuntu
+devbox-update --via tail-lobster4=tail-ubuntu
 ```
 
-This routes `lobster4` through Ubuntu's installed shortcut, using Ubuntu's own
+This routes `tail-lobster4` through Ubuntu's installed shortcut, using Ubuntu's own
 local key; it does not forward or copy a private key. Ubuntu must be available.
-Use `devbox-update --via lobster4=direct` once direct authentication is ready.
+Use `devbox-update --via tail-lobster4=direct` once direct authentication is ready.
 
 From PowerShell 7 on Windows, run:
 
@@ -156,9 +156,8 @@ distribution still needs its own installation. Open a new shell afterward.
 | --- | --- |
 | `lobster`, `lobsterclaw` | Enter the local checkout; outside tmux select/start a directory-specific Copilot pane, inside tmux start Copilot directly. New sessions use `--yolo`; arguments are forwarded. |
 | `copilot-tmux` | Select/start in the caller's directory, with persistent recovery. |
-| `lobster3`, `lobster4`, `ubuntu` | Connect through tailcat and open the destination's Copilot workspace. A shortcut to the current box stays local. |
-| `lobster3 hostname` | Run an explicit remote command; arguments are shell-quoted. |
-| `lobster-3`, `lobster-4` | Compatibility aliases for the old Ubuntu shortcuts. |
+| `tail-lobster3`, `tail-lobster4`, `tail-ubuntu` | Connect through tailcat and open the destination's Copilot workspace. A shortcut to the current box stays local. |
+| `tail-lobster3 hostname` | Run an explicit remote command; arguments are shell-quoted. |
 | `devbox-helpers doctor` | Report paths, tools, checkouts, and address-file presence, without printing tokens. PowerShell: `devbox-doctor`. |
 | `devbox-update` | Reinstall the current bundle from the configured shared folder, preserving the box name and SSH identity. |
 
@@ -167,6 +166,10 @@ Checkouts default to `~/github/bic/lobster` and either
 `LOBSTER_REPO` and `LOBSTERCLAW_REPO`. Windows functions always route into WSL,
 not the old `Q:` checkouts. Mouse and OSC 52 clipboard support are enabled for
 tmux. Remote shortcuts reset terminal mouse modes after disconnecting.
+The installer removes its old `lobster3`, `lobster4`, `ubuntu`, `lobster-3`,
+`lobster-4`, and `rygregg-ubuntu` wrappers, but preserves customized files.
+Box identities, address filenames, SSH host aliases, and saved routes are
+unchanged; only the commands use the `tail-` prefix.
 
 Existing managed files receive a one-time `.before-devboxes` backup. The
 installer preserves other Copilot hooks, tmux configuration, shell profiles,
